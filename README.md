@@ -1,5 +1,8 @@
 # PlotAxes
 
+[![Build Status](https://travis-ci.org/haberdashPI/PlotAxes.jl.svg?branch=master)](https://travis-ci.org/haberdashPI/PlotAxes.jl)
+[![Build status](https://ci.appveyor.com/api/projects/status/52duehasqjvedj0x/branch/master?svg=true)](https://ci.appveyor.com/project/haberdashPI/plotaxes-jl/branch/master)
+
 PlotAxes is intended to simplify the visualization of medium dimensional data
 (e.g. 4-5 dimensions max) during an interactive session. It is *not*
 intended as a full fledged plotting API for publication quality graphs.
@@ -25,5 +28,15 @@ For more details, see the documentation for `plotaxes` (ala ? at the REPL).
 
 ## Status
 
-This is working for display of data in my day-to-day work. There are plenty
-of features that might be added or backends that could be implemented.
+This is working for display of data in my day-to-day work. It has a fairly
+minimal number of features, as it intended for my initial, rapid plotting,
+and I employ a specific backend for more detailed, publication quality
+figures. There are plenty of features that might be added or backends that
+could be implemented. In the long-term I would like to make the `plotaxes`
+command easily composable with the other features of each backend.
+
+Tests current fail on Windows due to 
+[this issue](https://github.com/JuliaInterop/RCall.jl/issues/269): 
+that will only affect you if you want to use the RCall backend, *and* when
+you attempt to install R via the julia Conda.jl package (this approach to
+installing R doesn't seem to be working right now).

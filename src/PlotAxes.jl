@@ -3,18 +3,20 @@ using AxisArrays
 using DataFrames
 using Requires
 using Dates
-using Debugger
 
 export asplotable, plotaxes
 
-struct ContinuousPlotAxis
-  step::Float64
+struct ContinuousPlotAxis{N}
+  step::N
   scale::Symbol
 end
 
 struct QualitativePlotAxis end
 
 PlotAxis(x::Vector{<:Number}) = ContinuousPlotAxis(x[2] - x[1],:linear)
+PlotAxis(x::AbstractRange{<:Number}) = ContinuousPlotAxis(step(x),:linear)
+PlotAxis(x::Vector{<:TimeType}) = ContinuousPlotAxis(x[2] - x[1],:linear)
+PlotAxis(x::AbstractRange{<:TimeType}) = ContinuousPlotAxis(step(x),:linear)
 PlotAxis(x) = QualitativePlotAxis()
 
 const current_backend = Ref{Union{Nothing,Symbol}}(nothing)
@@ -55,10 +57,13 @@ function plotaxes(args...;kwds...)
 end
 
 """
-    set_backend(symbol)
+    set_backend!(symbol)
 
 Set the backend used to display plots when calling `plotaxes`. Call
 `list_backends()` for a list of available backends.
+
+Note that, when a package with a backend is loaded (e.g. `using Gadfly`) this
+method will be called automatically for the new backend.
 """
 set_backend!(x::Symbol) = current_backend[] = x
 
@@ -66,8 +71,8 @@ set_backend!(x::Symbol) = current_backend[] = x
     list_backends()
 
 List all currently available backends for plotting with `plotaxes`. This will
-be populated as packages that are supported by `PlotAxes` are loaded (e.g.
-via `using`)
+be populated with available backends as packages that are supported by
+`PlotAxes` are loaded (e.g. via `using`)
 
 # Supported backends
 
@@ -83,7 +88,7 @@ asplotable(x::AbstractArray,args...;kwds...) =
 asplotable(x::AxisArray;kwds...) = asplotable(x,axisnames(x)...;kwds...)
 default_quantize(x) = (100,)
 default_quantize(x,y) = (100,100,)
-default_quantize(x,y,args...) where N = (100,100,fill(10,length(args))...)
+default_quantize(x,y,args...) = (100,100,fill(10,length(args))...)
 bin(i,step) = floor(Int,(i-1)/step)+1
 bin(ii::CartesianIndex,steps) = CartesianIndex(bin.(ii.I,steps))
 # unbin(i,step) = (i-1)*step + 1, i*step
@@ -115,7 +120,7 @@ function quantize(x,steps)
   n = fill(0,qsize)
 
   for I in CartesianIndices(x)
-    values[bin(I,steps)] += x[I]
+    values[bin(I,steps)] += cleanup(x[I])
     n[bin(I,steps)] += 1
   end
   values ./= n
@@ -150,6 +155,9 @@ function asplotable(x::AxisArray,ax1,axes...;
   df = DataFrame(value = vec(vals))
   for ax in show_axes
     axi = findfirst(isequal(ax),axisnames(x))
+    if isnothing(axi)
+      error("Could not find the axis $ax.")
+    end
     df[:,ax] = default_value(eltype(axqvals[axi]))
     for (j,jj) in enumerate(CartesianIndices(vals))
       df[j,ax] = cleanup(axqvals[axi][jj.I[axi]])
@@ -174,6 +182,7 @@ function __init__()
   @require Unitful="1986cc42-f94f-5a68-af5c-568840ba703d" begin
     using .Unitful
     cleanup(x::Quantity) = ustrip(x)
+    default_value(::Type{<:Quantity{T}}) where T = default_value(T)
   end
   @require VegaLite="112f6efa-9a02-5b7d-90c0-432ed331239a" begin
     using .VegaLite

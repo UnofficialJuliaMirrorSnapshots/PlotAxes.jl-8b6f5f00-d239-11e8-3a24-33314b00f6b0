@@ -26,24 +26,43 @@ const available_backends = Dict{Symbol,Function}()
 """
     plotaxes(data,[axis1,axis2,etc...];quantize=(100,100,10,10,...))
 
-A quick and rudimentary display of large arrays of medium dimensionality (up
-to about 5 dimensions, depending on the backend). You can change how the
-plot is displayed using `PlotAxes.set_backend`.
+A rudimentary, quantized display of large arrays of medium dimensionality (up
+to about 6 dimensions, depending on the backend).
 
-The data should be an array between 1 and up to about 6 dimensions (how high
-you can go depends on the backend). By default all axes are plotted, but you
-can explicitly specifiy the names of the axes (as defined by
-`AxisArray(data)`) to look at the data averaged across the unlisted
+## Plot layout
+
+By default all axes are plotted, but you can explicitly specifiy the names of
+the axes as symbols to look at the data averaged across the unlisted
 dimensions.
 
 A single axis is plotted as a line. Multiple axes are plotted as a heatmap.
 The first two axes specified are the x and y axes of this heatmap. The
 remaining axes are plotted along rows and columns of a grid of plots; some
-backends allow a row or column to represent multiple dimensions (e.g. ggplot).
+backends allow a row or column to represent multiple dimensions by wrapping a
+dimension (e.g. ggplot).
+
+## Display backends
+
+You can change how the plot is displayed using `PlotAxes.set_backend`.
+
+## Axis Transformations
+
+You can transform axes by a given function by explicitly specifying
+axes, and using a `name => function`. Example:
+
+    using PlotAxes, VegaLite
+    data = AxisArray(rand(10,10),Axis{:a}(range(0,1,length=10)),
+        Axis{:b}(exp.(range(0,1,length=10))))
+    df, = PlotAxes.asplotable(data,:a,:b => log)
+
+Will result in a plot with a y axis named `log_b` with axis values ranging
+between 0 and 1.
+
+## Data Quantization
 
 The data are quantized by default to maintain reasonable performance. You can
 change the amount of quantization, specifying the maximum number of bins per
-axis as a tuple. The order of a quantizatio tuple is the same as the
+axis as a tuple. The order of a quantization tuple is the same as the
 axis arguments passed, which defaults to the natural order of the dimensinos
 (rows, cols, etc...).
 
@@ -101,11 +120,12 @@ bin(i,step) = floor(Int,(i-1)/step)+1
 bin(ii::CartesianIndex,steps) = CartesianIndex(bin.(ii.I,steps))
 # unbin(i,step) = (i-1)*step + 1, i*step
 
-cleanup(x) = x
-cleanup(x::Symbol) = string(x)
-default_value(::Type{T}) where T = zero(float(T))
+cleanup(x::Number) = x
+cleanup(x::TimeType) = x
+cleanup(x) = string(x)
+default_value(::Type{T}) where T <: Number = zero(float(T))
 default_value(::Type{T}) where T <: TimeType = T(0)
-default_value(::Type{T}) where T <: Union{Symbol,String} = ""
+default_value(::Type) = ""
 
 function quantize(x::AbstractRange{<:DateTime},steps::Number)
   step = steps[1]
@@ -122,6 +142,10 @@ function quantize(x,steps)
   if all(qsize .>= size(x))
     return x
   end
+  if default_value(eltype(x)) isa String
+    error("Cannot quantize non-numeric value of type $(eltype(x)).")
+  end
+
   values = fill(default_value(eltype(x)),qsize)
   # TODO: computation of n could be optimized
   # we're taking a "dumb" approach that is easy to understand but inefficient
@@ -145,9 +169,53 @@ function axis_forname(axes,name)
   end
 end
 
+axarg_name(x::Symbol) = x
+axarg_name((name,fn)::Pair) = name
+axarg_name(x) =
+  throw(ArgumentError("Unexpected argument. Must be a Symbol or Pair."))
+
+# apply any specified transform to the axes
+function transform_axes(xs,showax)
+  allax = collect(Any,axisnames(xs))
+  showax = collect(showax)
+  showax_i = indexin(axarg_name.(showax),allax)
+  if any(isnothing,showax_i)
+    ax = axarg_name(showax[findfirst(isnothing,showax_i)])
+    error("Could not find the axis $ax.")
+  end
+  allax[showax_i] = showax
+  axs = map(ax -> transform_axis(xs,ax),allax)
+
+  result = AxisArray(xs.data,axs...)
+  result, axisnames(result)[showax_i]
+end
+
+transform_axis(xs,name::Symbol) = AxisArrays.axes(xs,Axis{name})
+function transform_axis(xs,(name,fn)::Pair)
+  allvals = axisvalues(xs)
+  axisnames(xs)
+  n = axisdim(xs,Axis{name})
+  vals = fn.(allvals[n])
+  newname = Symbol(string(fn_prefix(fn),"_",name))
+  Axis{newname}(vals)
+end
+
+function fn_prefix(x::Function)
+  name = string(Base.typename(typeof(x)))
+  pattern =
+    r"typeof\([-+[:alpha:]_\u2207][[:word:]\u207A-\u209C!\u2032\u2207]*\)"
+  if occursin(pattern,name)
+    replace(name,r"typeof\((.*)\)" => s"\1")
+  else
+    ""
+  end
+end
+fn_prefix(x) = ""
+
 function asplotable(x::AxisArray,ax1,axes...;
                     quantize=default_quantize(ax1,axes...))
   show_axes = (ax1,axes...)
+  x,show_axes = transform_axes(x,show_axes)
   qs = map(axisnames(x)) do ax
     if ax ∈ show_axes
       min(size(x,Axis{ax}),quantize[findfirst(isequal(ax),show_axes)])
@@ -162,10 +230,7 @@ function asplotable(x::AxisArray,ax1,axes...;
 
   df = DataFrame(value = vec(vals))
   for ax in show_axes
-    axi = findfirst(isequal(ax),axisnames(x))
-    if isnothing(axi)
-      error("Could not find the axis $ax.")
-    end
+    axi = findfirst(isequal(axarg_name(ax)),axisnames(x))
     df[:,ax] = default_value(eltype(axqvals[axi]))
     for (j,jj) in enumerate(CartesianIndices(vals))
       df[j,ax] = cleanup(axqvals[axi][jj.I[axi]])
@@ -178,6 +243,8 @@ end
 
 # using Gadfly
 # include("gadfly.jl")
+
+const AxisId = Union{Symbol,Pair}
 
 function __init__()
   @require RCall="6f49c342-dc21-5d91-9882-a32aef131414" begin

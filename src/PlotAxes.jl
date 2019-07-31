@@ -14,10 +14,10 @@ end
 
 struct QualitativePlotAxis end
 
-PlotAxis(x::Vector{<:Number}) = ContinuousPlotAxis(x[2] - x[1],:linear)
-PlotAxis(x::AbstractRange{<:Number}) = ContinuousPlotAxis(step(x),:linear)
-PlotAxis(x::Vector{<:TimeType}) = ContinuousPlotAxis(x[2] - x[1],:linear)
-PlotAxis(x::AbstractRange{<:TimeType}) = ContinuousPlotAxis(step(x),:linear)
+PlotAxis(x::Vector{<:Number}) = ContinuousPlotAxis(cleanup(x[2] - x[1]),:linear)
+PlotAxis(x::AbstractRange{<:Number}) = ContinuousPlotAxis(cleanup(step(x)),:linear)
+PlotAxis(x::Vector{<:TimeType}) = ContinuousPlotAxis(cleanup(x[2] - x[1]),:linear)
+PlotAxis(x::AbstractRange{<:TimeType}) = ContinuousPlotAxis(cleanup(step(x)),:linear)
 PlotAxis(x) = QualitativePlotAxis()
 
 const current_backend = Ref{Union{Nothing,Symbol}}(nothing)
@@ -228,10 +228,10 @@ function asplotable(x::AxisArray,ax1,axes...;
   vals = PlotAxes.quantize(x,steps)
   axqvals = PlotAxes.quantize.(axisvalues(x),steps)
 
-  df = DataFrame(value = vec(vals))
+  df = DataFrame(value = convert(Array{eltype(vals)},vec(vals)))
   for ax in show_axes
     axi = findfirst(isequal(axarg_name(ax)),axisnames(x))
-    df[:,ax] = default_value(eltype(axqvals[axi]))
+    df[!,ax] .= default_value(eltype(axqvals[axi]))
     for (j,jj) in enumerate(CartesianIndices(vals))
       df[j,ax] = cleanup(axqvals[axi][jj.I[axi]])
     end
